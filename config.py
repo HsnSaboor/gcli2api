@@ -44,6 +44,7 @@ ENV_MAPPINGS = {
     "API_PASSWORD": "api_password",
     "PANEL_PASSWORD": "panel_password",
     "PASSWORD": "password",
+    "LANGUAGE": "language",
 }
 
 
@@ -439,3 +440,20 @@ async def get_antigravity_api_url() -> str:
             "ANTIGRAVITY_API_URL",
         )
     )
+
+
+async def get_language() -> str:
+    """
+    Get language setting for user-facing responses.
+
+    Environment variable: LANGUAGE
+    Database config key: language
+    Default: zh
+    """
+    value = await get_config_value("language", "zh", "LANGUAGE")
+    if not isinstance(value, str):
+        return "zh"
+    normalized = value.strip().lower()
+    if normalized.startswith("en"):
+        return "en"
+    return "zh"

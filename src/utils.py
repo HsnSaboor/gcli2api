@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from config import get_api_password, get_panel_password
+from src.i18n import translate
 from fastapi import Depends, HTTPException, Header, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from log import log
@@ -234,7 +235,7 @@ async def authenticate_flexible(
         if not authorization.startswith("Bearer "):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid authentication scheme. Use 'Bearer <token>'",
+                detail=await translate("auth.invalid_scheme"),
                 headers={"WWW-Authenticate": "Bearer"},
             )
         token = authorization[7:]  # 移除 "Bearer " 前缀
@@ -244,7 +245,7 @@ async def authenticate_flexible(
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing authentication credentials. Use 'key' URL parameter, 'x-goog-api-key', 'x-anthropic-auth-token', 'anthropic-auth-token', 'x-api-key', 'access_token' header, or 'Authorization: Bearer <token>'",
+            detail=await translate("auth.missing_credentials"),
             headers={"WWW-Authenticate": "Bearer"},
         )
     
@@ -253,7 +254,7 @@ async def authenticate_flexible(
         log.debug(f"Authentication failed using {auth_method}")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="密码错误"
+            detail=await translate("auth.invalid_password"),
         )
     
     log.debug(f"Authentication successful using {auth_method}")
@@ -285,5 +286,5 @@ async def verify_panel_token(credentials: HTTPAuthorizationCredentials = Depends
 
     password = await get_panel_password()
     if credentials.credentials != password:
-        raise HTTPException(status_code=401, detail="密码错误")
+        raise HTTPException(status_code=401, detail=await translate("auth.invalid_password"))
     return credentials.credentials

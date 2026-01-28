@@ -15,6 +15,7 @@ from config import (
     get_antigravity_stream2nostream,
     get_auto_ban_error_codes,
 )
+from src.i18n import translate
 from log import log
 
 from src.credential_manager import credential_manager
@@ -100,9 +101,9 @@ async def stream_request(
         # 如果返回值是None，直接返回错误500
         log.error("[ANTIGRAVITY STREAM] 当前无可用凭证")
         yield Response(
-            content=json.dumps({"error": "当前无可用凭证"}),
+            content=json.dumps({"error": await translate("creds.no_available")}),
             status_code=500,
-            media_type="application/json"
+            media_type="application/json",
         )
         return
 
@@ -113,9 +114,9 @@ async def stream_request(
     if not access_token:
         log.error(f"[ANTIGRAVITY STREAM] No access token in credential: {current_file}")
         yield Response(
-            content=json.dumps({"error": "凭证中没有访问令牌"}),
+            content=json.dumps({"error": await translate("creds.no_token")}),
             status_code=500,
-            media_type="application/json"
+            media_type="application/json",
         )
         return
 
@@ -271,7 +272,7 @@ async def stream_request(
                 else:
                     log.error(f"[ANTIGRAVITY STREAM] 空回复达到最大重试次数")
                     yield Response(
-                        content=json.dumps({"error": "服务返回空回复"}),
+                        content=json.dumps({"error": await translate("creds.response_empty")}),
                         status_code=500,
                         media_type="application/json"
                     )
@@ -306,7 +307,7 @@ async def stream_request(
                 if not await refresh_credential_fast():
                     log.error("[ANTIGRAVITY STREAM] 重试时无可用凭证或令牌")
                     yield Response(
-                        content=json.dumps({"error": "当前无可用凭证"}),
+                        content=json.dumps({"error": await translate("creds.no_available")}),
                         status_code=500,
                         media_type="application/json"
                     )
@@ -365,7 +366,7 @@ async def non_stream_request(
         # 如果返回值是None，直接返回错误500
         log.error("[ANTIGRAVITY] 当前无可用凭证")
         return Response(
-            content=json.dumps({"error": "当前无可用凭证"}),
+            content=json.dumps({"error": await translate("creds.no_available")}),
             status_code=500,
             media_type="application/json"
         )
@@ -377,7 +378,7 @@ async def non_stream_request(
     if not access_token:
         log.error(f"[ANTIGRAVITY] No access token in credential: {current_file}")
         return Response(
-            content=json.dumps({"error": "凭证中没有访问令牌"}),
+            content=json.dumps({"error": await translate("creds.no_token")}),
             status_code=500,
             media_type="application/json"
         )
@@ -456,7 +457,7 @@ async def non_stream_request(
                     else:
                         log.error(f"[ANTIGRAVITY] 空回复达到最大重试次数")
                         return Response(
-                            content=json.dumps({"error": "服务返回空回复"}),
+                            content=json.dumps({"error": await translate("creds.response_empty")}),
                             status_code=500,
                             media_type="application/json"
                         )
@@ -563,7 +564,7 @@ async def non_stream_request(
                 if not await refresh_credential_fast():
                     log.error("[ANTIGRAVITY] 重试时无可用凭证或令牌")
                     return Response(
-                        content=json.dumps({"error": "当前无可用凭证"}),
+                        content=json.dumps({"error": await translate("creds.no_available")}),
                         status_code=500,
                         media_type="application/json"
                     )

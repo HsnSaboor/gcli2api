@@ -19,6 +19,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import Response
 from config import get_code_assist_endpoint, get_auto_ban_error_codes
+from src.i18n import translate
 from src.api.utils import get_model_group
 from log import log
 
@@ -113,7 +114,7 @@ async def stream_request(
     if not cred_result:
         # 如果返回值是None，直接返回错误500
         yield Response(
-            content=json.dumps({"error": "当前无可用凭证"}),
+            content=json.dumps({"error": await translate("creds.no_available")}),
             status_code=500,
             media_type="application/json"
         )
@@ -135,7 +136,9 @@ async def stream_request(
     except Exception as e:
         log.error(f"准备请求失败: {e}")
         yield Response(
-            content=json.dumps({"error": f"准备请求失败: {str(e)}"}),
+            content=json.dumps(
+                {"error": await translate("creds.request_prepare_failed", error=str(e))}
+            ),
             status_code=500,
             media_type="application/json"
         )
@@ -293,7 +296,7 @@ async def stream_request(
                 if not await refresh_credential_fast():
                     log.error("[GEMINICLI STREAM] 重试时无可用凭证或刷新失败")
                     yield Response(
-                        content=json.dumps({"error": "当前无可用凭证"}),
+                        content=json.dumps({"error": await translate("creds.no_available")}),
                         status_code=500,
                         media_type="application/json"
                     )
@@ -339,7 +342,7 @@ async def non_stream_request(
     if not cred_result:
         # 如果返回值是None，直接返回错误500
         return Response(
-            content=json.dumps({"error": "当前无可用凭证"}),
+            content=json.dumps({"error": await translate("creds.no_available")}),
             status_code=500,
             media_type="application/json"
         )
@@ -360,7 +363,9 @@ async def non_stream_request(
     except Exception as e:
         log.error(f"准备请求失败: {e}")
         return Response(
-            content=json.dumps({"error": f"准备请求失败: {str(e)}"}),
+            content=json.dumps(
+                {"error": await translate("creds.request_prepare_failed", error=str(e))}
+            ),
             status_code=500,
             media_type="application/json"
         )
@@ -491,7 +496,7 @@ async def non_stream_request(
                     if not await refresh_credential_fast():
                         log.error("[NON-STREAM] 重试时无可用凭证或刷新失败")
                         return Response(
-                            content=json.dumps({"error": "当前无可用凭证"}),
+                            content=json.dumps({"error": await translate("creds.no_available")}),
                             status_code=500,
                             media_type="application/json"
                         )
@@ -563,7 +568,7 @@ async def non_stream_request(
                     if not await refresh_credential_fast():
                         log.error("[NON-STREAM] 重试时无可用凭证或刷新失败")
                         return Response(
-                            content=json.dumps({"error": "当前无可用凭证"}),
+                            content=json.dumps({"error": await translate("creds.no_available")}),
                             status_code=500,
                             media_type="application/json"
                         )
@@ -586,7 +591,9 @@ async def non_stream_request(
                     return last_error_response
                 else:
                     return Response(
-                        content=json.dumps({"error": f"请求异常: {str(e)}"}),
+                        content=json.dumps(
+                            {"error": await translate("creds.request_failed", error=str(e))}
+                        ),
                         status_code=500,
                         media_type="application/json"
                     )

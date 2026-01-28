@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qs, urlparse
 
 from config import get_config_value, get_antigravity_api_url, get_code_assist_endpoint
+from src.i18n import translate
 from log import log
 
 from .google_oauth_api import (

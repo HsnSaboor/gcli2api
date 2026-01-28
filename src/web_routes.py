@@ -51,6 +51,7 @@ from src.utils import verify_panel_token, GEMINICLI_USER_AGENT, ANTIGRAVITY_USER
 from src.api.antigravity import fetch_quota_info
 from src.google_oauth_api import Credentials, fetch_project_id
 from config import get_code_assist_endpoint, get_antigravity_api_url
+from src.i18n import translate
 
 # 创建路由器
 router = APIRouter()
@@ -191,7 +192,7 @@ async def serve_control_panel(request: Request):
 
     except Exception as e:
         log.error(f"加载控制面板页面失败: {e}")
-        raise HTTPException(status_code=500, detail="服务器内部错误")
+        raise HTTPException(status_code=500, detail=await translate("config.error"))
 
 
 @router.post("/auth/login")
@@ -200,9 +201,11 @@ async def login(request: LoginRequest):
     try:
         if await verify_password(request.password):
             # 直接使用密码作为token，简化认证流程
-            return JSONResponse(content={"token": request.password, "message": "登录成功"})
+            return JSONResponse(
+                content={"token": request.password, "message": await translate("auth.login_success")}
+            )
         else:
-            raise HTTPException(status_code=401, detail="密码错误")
+            raise HTTPException(status_code=401, detail=await translate("auth.invalid_password"))
     except HTTPException:
         raise
     except Exception as e:
@@ -302,7 +305,7 @@ async def auth_callback_url(request: AuthCallbackUrlRequest, token: str = Depend
     try:
         # 验证URL格式
         if not request.callback_url or not request.callback_url.startswith(("http://", "https://")):
-            raise HTTPException(status_code=400, detail="请提供有效的回调URL")
+            raise HTTPException(status_code=400, detail=await translate("auth.url_required"))
 
         # 从回调URL完成认证
         result = await complete_auth_flow_from_callback_url(
@@ -350,7 +353,7 @@ async def check_auth_status(project_id: str, token: str = Depends(verify_panel_t
     """检查认证状态"""
     try:
         if not project_id:
-            raise HTTPException(status_code=400, detail="Project ID 不能为空")
+            raise HTTPException(status_code=400, detail=await translate("config.project_id_required"))
 
         status = get_auth_status(project_id)
         return JSONResponse(content=status)
@@ -365,7 +368,7 @@ async def check_auth_status(project_id: str, token: str = Depends(verify_panel_t
 # =============================================================================
 
 
-def validate_mode(mode: str = "geminicli") -> str:
+async def validate_mode(mode: str = "geminicli") -> str:
     """
     验证 mode 参数
 
@@ -381,7 +384,7 @@ def validate_mode(mode: str = "geminicli") -> str:
     if mode not in ["geminicli", "antigravity"]:
         raise HTTPException(
             status_code=400,
-            detail=f"无效的 mode 参数: {mode}，只支持 'geminicli' 或 'antigravity'"
+            detail=await translate("config.invalid_mode", mode=mode),
         )
     return mode
 
@@ -416,7 +419,7 @@ async def extract_json_files_from_zip(zip_file: UploadFile) -> List[dict]:
             ]
 
             if not json_files:
-                raise HTTPException(status_code=400, detail="ZIP文件中没有找到JSON文件")
+                raise HTTPException(status_code=400, detail=await translate("config.upload_zip_empty"))
 
             log.info(f"从ZIP文件 {zip_file.filename} 中找到 {len(json_files)} 个JSON文件")
 
@@ -444,25 +447,29 @@ async def extract_json_files_from_zip(zip_file: UploadFile) -> List[dict]:
         return files_data
 
     except zipfile.BadZipFile:
-        raise HTTPException(status_code=400, detail="无效的ZIP文件格式")
+        raise HTTPException(status_code=400, detail=await translate("config.upload_zip_invalid"))
     except Exception as e:
         log.error(f"处理ZIP文件失败: {e}")
-        raise HTTPException(status_code=500, detail=f"处理ZIP文件失败: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=await translate("config.upload_zip_failed", error=str(e)),
+        )
 
 
 async def upload_credentials_common(
     files: List[UploadFile], mode: str = "geminicli"
 ) -> JSONResponse:
     """批量上传凭证文件的通用函数"""
-    mode = validate_mode(mode)
+    mode = await validate_mode(mode)
 
     if not files:
-        raise HTTPException(status_code=400, detail="请选择要上传的文件")
+        raise HTTPException(status_code=400, detail=await translate("config.upload_missing_files"))
 
     # 检查文件数量限制
     if len(files) > 100:
         raise HTTPException(
-            status_code=400, detail=f"文件数量过多，最多支持100个文件，当前：{len(files)}个"
+            status_code=400,
+            detail=await translate("config.upload_limit", count=len(files)),
         )
 
     files_data = []
@@ -487,13 +494,15 @@ async def upload_credentials_common(
                 content_str = content.decode("utf-8")
             except UnicodeDecodeError:
                 raise HTTPException(
-                    status_code=400, detail=f"文件 {file.filename} 编码格式不支持"
+                status_code=400,
+                detail=await translate("config.upload_file_encoding", filename=file.filename),
                 )
 
             files_data.append({"filename": file.filename, "content": content_str})
         else:
             raise HTTPException(
-                status_code=400, detail=f"文件 {file.filename} 格式不支持，只支持JSON和ZIP文件"
+                status_code=400,
+                detail=await translate("config.upload_file_type", filename=file.filename),
             )
 
     
@@ -520,7 +529,11 @@ async def upload_credentials_common(
                     await credential_manager.add_credential(filename, credential_data)
 
                 log.debug(f"成功上传 {mode} 凭证文件: {filename}")
-                return {"filename": filename, "status": "success", "message": "上传成功"}
+                return {
+                    "filename": filename,
+                    "status": "success",
+                    "message": await translate("config.upload_success"),
+                }
 
             except json.JSONDecodeError as e:
                 return {
@@ -571,11 +584,18 @@ async def upload_credentials_common(
                 "uploaded_count": total_success,
                 "total_count": len(files_data),
                 "results": all_results,
-                "message": f"批量上传完成: 成功 {total_success}/{len(files_data)} 个 {mode} 文件",
+                "message": await translate(
+                    "creds.batch_summary",
+                    success=total_success,
+                    total=len(files_data),
+                ),
             }
         )
     else:
-        raise HTTPException(status_code=400, detail=f"没有 {mode} 文件上传成功")
+        raise HTTPException(
+            status_code=400,
+            detail=await translate("creds.no_available_retry", max_retries=0, mode=mode, model_key=mode),
+        )
 
 
 async def get_creds_status_common(
@@ -583,16 +603,16 @@ async def get_creds_status_common(
     error_code_filter: str = None, cooldown_filter: str = None
 ) -> JSONResponse:
     """获取凭证文件状态的通用函数"""
-    mode = validate_mode(mode)
+    mode = await validate_mode(mode)
     # 验证分页参数
     if offset < 0:
-        raise HTTPException(status_code=400, detail="offset 必须大于等于 0")
+        raise HTTPException(status_code=400, detail=await translate("config.offset_invalid"))
     if limit not in [20, 50, 100, 200, 500, 1000]:
-        raise HTTPException(status_code=400, detail="limit 只能是 20、50、100、200、500 或 1000")
+        raise HTTPException(status_code=400, detail=await translate("config.limit_invalid"))
     if status_filter not in ["all", "enabled", "disabled"]:
-        raise HTTPException(status_code=400, detail="status_filter 只能是 all、enabled 或 disabled")
+        raise HTTPException(status_code=400, detail=await translate("config.status_invalid"))
     if cooldown_filter and cooldown_filter not in ["all", "in_cooldown", "no_cooldown"]:
-        raise HTTPException(status_code=400, detail="cooldown_filter 只能是 all、in_cooldown 或 no_cooldown")
+        raise HTTPException(status_code=400, detail=await translate("config.cooldown_invalid"))
 
     
 
@@ -686,14 +706,17 @@ async def get_creds_status_common(
 
 async def download_all_creds_common(mode: str = "geminicli") -> Response:
     """打包下载所有凭证文件的通用函数"""
-    mode = validate_mode(mode)
+    mode = await validate_mode(mode)
     zip_filename = "antigravity_credentials.zip" if mode == "antigravity" else "credentials.zip"
 
     storage_adapter = await get_storage_adapter()
     credential_filenames = await storage_adapter.list_credentials(mode=mode)
 
     if not credential_filenames:
-        raise HTTPException(status_code=404, detail=f"没有找到 {mode} 凭证文件")
+        raise HTTPException(
+            status_code=404,
+            detail=await translate("creds.none_found", mode=mode),
+        )
 
     log.info(f"开始打包 {len(credential_filenames)} 个 {mode} 凭证文件...")
 
@@ -728,16 +751,16 @@ async def download_all_creds_common(mode: str = "geminicli") -> Response:
 
 async def fetch_user_email_common(filename: str, mode: str = "geminicli") -> JSONResponse:
     """获取指定凭证文件用户邮箱的通用函数"""
-    mode = validate_mode(mode)
+    mode = await validate_mode(mode)
 
     filename_only = os.path.basename(filename)
     if not filename_only.endswith(".json"):
-        raise HTTPException(status_code=404, detail="无效的文件名")
+        raise HTTPException(status_code=404, detail=await translate("config.invalid_filename"))
 
     storage_adapter = await get_storage_adapter()
     credential_data = await storage_adapter.get_credential(filename_only, mode=mode)
     if not credential_data:
-        raise HTTPException(status_code=404, detail="凭证文件不存在")
+        raise HTTPException(status_code=404, detail=await translate("config.credential_file_missing"))
 
     email = await credential_manager.get_or_fetch_user_email(filename_only, mode=mode)
 
@@ -746,7 +769,7 @@ async def fetch_user_email_common(filename: str, mode: str = "geminicli") -> JSO
             content={
                 "filename": filename_only,
                 "user_email": email,
-                "message": "成功获取用户邮箱",
+                "message": await translate("creds.fetch_email_success"),
             }
         )
     else:
@@ -754,7 +777,7 @@ async def fetch_user_email_common(filename: str, mode: str = "geminicli") -> JSO
             content={
                 "filename": filename_only,
                 "user_email": None,
-                "message": "无法获取用户邮箱，可能凭证已过期或权限不足",
+                "message": await translate("creds.fetch_email_failed"),
             },
             status_code=400,
         )
@@ -765,7 +788,7 @@ async def refresh_all_user_emails_common(mode: str = "geminicli") -> JSONRespons
     
     利用 get_all_credential_states 批量获取状态
     """
-    mode = validate_mode(mode)
+    mode = await validate_mode(mode)
 
     storage_adapter = await get_storage_adapter()
     
@@ -806,7 +829,7 @@ async def refresh_all_user_emails_common(mode: str = "geminicli") -> JSONRespons
                     "filename": os.path.basename(filename),
                     "user_email": None,
                     "success": False,
-                    "error": "无法获取邮箱",
+                    "error": await translate("creds.fetch_email_error"),
                 })
         except Exception as e:
             results.append({
@@ -830,7 +853,7 @@ async def refresh_all_user_emails_common(mode: str = "geminicli") -> JSONRespons
 
 async def deduplicate_credentials_by_email_common(mode: str = "geminicli") -> JSONResponse:
     """批量去重凭证文件的通用函数 - 删除邮箱相同的凭证（只保留一个）"""
-    mode = validate_mode(mode)
+    mode = await validate_mode(mode)
     storage_adapter = await get_storage_adapter()
 
     try:
@@ -852,7 +875,7 @@ async def deduplicate_credentials_by_email_common(mode: str = "geminicli") -> JS
                     "no_email_count": len(no_email_files),
                     "duplicate_groups": [],
                     "delete_errors": [],
-                    "message": "没有发现重复的凭证（相同邮箱）",
+                    "message": await translate("creds.dedupe_none"),
                 }
             )
 
@@ -928,7 +951,7 @@ async def upload_credentials(
 ):
     """批量上传凭证文件"""
     try:
-        mode = validate_mode(mode)
+        mode = await validate_mode(mode)
         return await upload_credentials_common(files, mode=mode)
     except HTTPException:
         raise
@@ -962,7 +985,7 @@ async def get_creds_status(
         包含凭证列表、总数、分页信息的响应
     """
     try:
-        mode = validate_mode(mode)
+        mode = await validate_mode(mode)
         return await get_creds_status_common(
             offset, limit, status_filter, mode=mode,
             error_code_filter=error_code_filter,
@@ -986,10 +1009,10 @@ async def get_cred_detail(
     用于用户查看/编辑凭证详情
     """
     try:
-        mode = validate_mode(mode)
+        mode = await validate_mode(mode)
         # 验证文件名
         if not filename.endswith(".json"):
-            raise HTTPException(status_code=400, detail="无效的文件名")
+            raise HTTPException(status_code=400, detail=await translate("config.invalid_filename"))
 
         
 
@@ -1000,7 +1023,7 @@ async def get_cred_detail(
         # 获取凭证数据
         credential_data = await storage_adapter.get_credential(filename, mode=mode)
         if not credential_data:
-            raise HTTPException(status_code=404, detail="凭证不存在")
+            raise HTTPException(status_code=404, detail=await translate("config.credential_missing"))
 
         # 获取状态信息
         file_status = await storage_adapter.get_credential_state(filename, mode=mode)
@@ -1044,7 +1067,7 @@ async def creds_action(
 ):
     """对凭证文件执行操作（启用/禁用/删除）"""
     try:
-        mode = validate_mode(mode)
+        mode = await validate_mode(mode)
 
         log.info(f"Received request: {request}")
 
@@ -1068,7 +1091,7 @@ async def creds_action(
             credential_data = await storage_adapter.get_credential(filename, mode=mode)
             if not credential_data:
                 log.error(f"凭证未找到: {filename} (mode={mode})")
-                raise HTTPException(status_code=404, detail="凭证文件不存在")
+                raise HTTPException(status_code=404, detail=await translate("config.credential_file_missing"))
 
         if action == "enable":
             log.info(f"Web请求: 启用文件 {filename} (mode={mode})")
@@ -1076,10 +1099,17 @@ async def creds_action(
             log.info(f"[WebRoute] set_cred_disabled 返回结果: {result}")
             if result:
                 log.info(f"Web请求: 文件 {filename} 已成功启用 (mode={mode})")
-                return JSONResponse(content={"message": f"已启用凭证文件 {os.path.basename(filename)}"})
+                return JSONResponse(
+                    content={
+                        "message": await translate(
+                            "creds.enable_success",
+                            filename=os.path.basename(filename),
+                        )
+                    }
+                )
             else:
                 log.error(f"Web请求: 文件 {filename} 启用失败 (mode={mode})")
-                raise HTTPException(status_code=500, detail="启用凭证失败，可能凭证不存在")
+                raise HTTPException(status_code=500, detail=await translate("config.credential_enable_failed"))
 
         elif action == "disable":
             log.info(f"Web请求: 禁用文件 {filename} (mode={mode})")
@@ -1087,10 +1117,17 @@ async def creds_action(
             log.info(f"[WebRoute] set_cred_disabled 返回结果: {result}")
             if result:
                 log.info(f"Web请求: 文件 {filename} 已成功禁用 (mode={mode})")
-                return JSONResponse(content={"message": f"已禁用凭证文件 {os.path.basename(filename)}"})
+                return JSONResponse(
+                    content={
+                        "message": await translate(
+                            "creds.disable_success",
+                            filename=os.path.basename(filename),
+                        )
+                    }
+                )
             else:
                 log.error(f"Web请求: 文件 {filename} 禁用失败 (mode={mode})")
-                raise HTTPException(status_code=500, detail="禁用凭证失败，可能凭证不存在")
+                raise HTTPException(status_code=500, detail=await translate("config.credential_disable_failed"))
 
         elif action == "delete":
             try:
@@ -1099,16 +1136,24 @@ async def creds_action(
                 if success:
                     log.info(f"通过管理器成功删除凭证: {filename} (mode={mode})")
                     return JSONResponse(
-                        content={"message": f"已删除凭证文件 {os.path.basename(filename)}"}
+                        content={
+                            "message": await translate(
+                                "creds.delete_success",
+                                filename=os.path.basename(filename),
+                            )
+                        }
                     )
                 else:
-                    raise HTTPException(status_code=500, detail="删除凭证失败")
+                    raise HTTPException(status_code=500, detail=await translate("config.credential_delete_failed"))
             except Exception as e:
                 log.error(f"删除凭证 {filename} 时出错: {e}")
-                raise HTTPException(status_code=500, detail=f"删除文件失败: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=await translate("creds.delete_failed", error=str(e)),
+                )
 
         else:
-            raise HTTPException(status_code=400, detail="无效的操作类型")
+            raise HTTPException(status_code=400, detail=await translate("config.credential_action_invalid"))
 
     except HTTPException:
         raise
@@ -1125,13 +1170,13 @@ async def creds_batch_action(
 ):
     """批量对凭证文件执行操作（启用/禁用/删除）"""
     try:
-        mode = validate_mode(mode)
+        mode = await validate_mode(mode)
 
         action = request.action
         filenames = request.filenames
 
         if not filenames:
-            raise HTTPException(status_code=400, detail="文件名列表不能为空")
+            raise HTTPException(status_code=400, detail=await translate("config.filename_list_empty"))
 
         log.info(f"对 {len(filenames)} 个文件执行批量操作 '{action}'")
 
@@ -1144,7 +1189,9 @@ async def creds_batch_action(
             try:
                 # 验证文件名安全性
                 if not filename.endswith(".json"):
-                    errors.append(f"{filename}: 无效的文件类型")
+                    errors.append(
+                        await translate("creds.invalid_type", filename=filename)
+                    )
                     continue
 
                 # 对于删除操作，不需要检查凭证数据完整性
@@ -1152,7 +1199,9 @@ async def creds_batch_action(
                 if action != "delete":
                     credential_data = await storage_adapter.get_credential(filename, mode=mode)
                     if not credential_data:
-                        errors.append(f"{filename}: 凭证不存在")
+                        errors.append(
+                            await translate("creds.file_not_found", filename=filename)
+                        )
                         continue
 
                 # 执行相应操作
@@ -1171,24 +1220,46 @@ async def creds_batch_action(
                             success_count += 1
                             log.info(f"成功删除批量中的凭证: {filename}")
                         else:
-                            errors.append(f"{filename}: 删除失败")
+                            errors.append(
+                                await translate("creds.delete_failed_item", filename=filename)
+                            )
                             continue
                     except Exception as e:
-                        errors.append(f"{filename}: 删除文件失败 - {str(e)}")
+                        errors.append(
+                            await translate(
+                                "creds.delete_failed_error",
+                                filename=filename,
+                                error=str(e),
+                            )
+                        )
                         continue
                 else:
-                    errors.append(f"{filename}: 无效的操作类型")
+                    errors.append(
+                        await translate("creds.invalid_action", filename=filename)
+                    )
                     continue
 
             except Exception as e:
                 log.error(f"处理 {filename} 时出错: {e}")
-                errors.append(f"{filename}: 处理失败 - {str(e)}")
+                errors.append(
+                    await translate(
+                        "creds.process_failed",
+                        filename=filename,
+                        error=str(e),
+                    )
+                )
                 continue
 
         # 构建返回消息
-        result_message = f"批量操作完成：成功处理 {success_count}/{len(filenames)} 个文件"
+        result_message = await translate(
+            "creds.batch_summary",
+            success=success_count,
+            total=len(filenames),
+        )
         if errors:
-            result_message += "\n错误详情:\n" + "\n".join(errors)
+            result_message += (
+                "\n" + await translate("creds.batch_error_details") + "\n" + "\n".join(errors)
+            )
 
         response_data = {
             "success_count": success_count,
@@ -1214,7 +1285,7 @@ async def download_cred_file(
 ):
     """下载单个凭证文件"""
     try:
-        mode = validate_mode(mode)
+        mode = await validate_mode(mode)
         # 验证文件名安全性
         if not filename.endswith(".json"):
             raise HTTPException(status_code=404, detail="无效的文件名")
@@ -1253,7 +1324,7 @@ async def fetch_user_email(
 ):
     """获取指定凭证文件的用户邮箱地址"""
     try:
-        mode = validate_mode(mode)
+        mode = await validate_mode(mode)
         return await fetch_user_email_common(filename, mode=mode)
     except HTTPException:
         raise
@@ -1269,7 +1340,7 @@ async def refresh_all_user_emails(
 ):
     """刷新所有凭证文件的用户邮箱地址"""
     try:
-        mode = validate_mode(mode)
+        mode = await validate_mode(mode)
         return await refresh_all_user_emails_common(mode=mode)
     except Exception as e:
         log.error(f"批量获取用户邮箱失败: {e}")
@@ -1283,7 +1354,7 @@ async def deduplicate_credentials_by_email(
 ):
     """批量去重凭证文件 - 删除邮箱相同的凭证（只保留一个）"""
     try:
-        mode = validate_mode(mode)
+        mode = await validate_mode(mode)
         return await deduplicate_credentials_by_email_common(mode=mode)
     except Exception as e:
         log.error(f"批量去重凭证失败: {e}")
@@ -1300,7 +1371,7 @@ async def download_all_creds(
     只在实际下载时才加载完整凭证内容，最大化性能
     """
     try:
-        mode = validate_mode(mode)
+        mode = await validate_mode(mode)
         return await download_all_creds_common(mode=mode)
     except HTTPException:
         raise
@@ -1393,20 +1464,20 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_pa
                 not isinstance(new_config["retry_429_max_retries"], int)
                 or new_config["retry_429_max_retries"] < 0
             ):
-                raise HTTPException(status_code=400, detail="最大429重试次数必须是大于等于0的整数")
+                raise HTTPException(status_code=400, detail=await translate("config.retry_max_invalid"))
 
         if "retry_429_enabled" in new_config:
             if not isinstance(new_config["retry_429_enabled"], bool):
-                raise HTTPException(status_code=400, detail="429重试开关必须是布尔值")
+                raise HTTPException(status_code=400, detail=await translate("config.retry_enabled_invalid"))
 
         # 验证新的配置项
         if "retry_429_interval" in new_config:
             try:
                 interval = float(new_config["retry_429_interval"])
                 if interval < 0.01 or interval > 10:
-                    raise HTTPException(status_code=400, detail="429重试间隔必须在0.01-10秒之间")
+                    raise HTTPException(status_code=400, detail=await translate("config.retry_interval_range"))
             except (ValueError, TypeError):
-                raise HTTPException(status_code=400, detail="429重试间隔必须是有效的数字")
+                raise HTTPException(status_code=400, detail=await translate("config.retry_interval_invalid"))
 
         if "anti_truncation_max_attempts" in new_config:
             if (
@@ -1415,25 +1486,26 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_pa
                 or new_config["anti_truncation_max_attempts"] > 10
             ):
                 raise HTTPException(
-                    status_code=400, detail="抗截断最大重试次数必须是1-10之间的整数"
+                    status_code=400,
+                    detail=await translate("config.anti_truncation_invalid"),
                 )
 
         if "compatibility_mode_enabled" in new_config:
             if not isinstance(new_config["compatibility_mode_enabled"], bool):
-                raise HTTPException(status_code=400, detail="兼容性模式开关必须是布尔值")
+                raise HTTPException(status_code=400, detail=await translate("config.compatibility_invalid"))
 
         if "return_thoughts_to_frontend" in new_config:
             if not isinstance(new_config["return_thoughts_to_frontend"], bool):
-                raise HTTPException(status_code=400, detail="思维链返回开关必须是布尔值")
+                raise HTTPException(status_code=400, detail=await translate("config.return_thoughts_invalid"))
 
         if "antigravity_stream2nostream" in new_config:
             if not isinstance(new_config["antigravity_stream2nostream"], bool):
-                raise HTTPException(status_code=400, detail="Antigravity流式转非流式开关必须是布尔值")
+                raise HTTPException(status_code=400, detail=await translate("config.antigravity_stream_invalid"))
 
         # 验证服务器配置
         if "host" in new_config:
             if not isinstance(new_config["host"], str) or not new_config["host"].strip():
-                raise HTTPException(status_code=400, detail="服务器主机地址不能为空")
+                raise HTTPException(status_code=400, detail=await translate("config.host_required"))
 
         if "port" in new_config:
             if (
@@ -1441,19 +1513,19 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_pa
                 or new_config["port"] < 1
                 or new_config["port"] > 65535
             ):
-                raise HTTPException(status_code=400, detail="端口号必须是1-65535之间的整数")
+                raise HTTPException(status_code=400, detail=await translate("config.port_invalid"))
 
         if "api_password" in new_config:
             if not isinstance(new_config["api_password"], str):
-                raise HTTPException(status_code=400, detail="API访问密码必须是字符串")
+                raise HTTPException(status_code=400, detail=await translate("config.api_password_invalid"))
 
         if "panel_password" in new_config:
             if not isinstance(new_config["panel_password"], str):
-                raise HTTPException(status_code=400, detail="控制面板密码必须是字符串")
+                raise HTTPException(status_code=400, detail=await translate("config.panel_password_invalid"))
 
         if "password" in new_config:
             if not isinstance(new_config["password"], str):
-                raise HTTPException(status_code=400, detail="访问密码必须是字符串")
+                raise HTTPException(status_code=400, detail=await translate("config.password_invalid"))
 
         # 获取环境变量锁定的配置键
         env_locked_keys = get_env_locked_keys()
@@ -1479,7 +1551,7 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_pa
 
         # 构建响应消息
         response_data = {
-            "message": "配置保存成功",
+            "message": await translate("config.saved"),
             "saved_config": {k: v for k, v in new_config.items() if k not in env_locked_keys},
         }
 
@@ -1489,7 +1561,7 @@ async def save_config(request: ConfigSaveRequest, token: str = Depends(verify_pa
         raise
     except Exception as e:
         log.error(f"保存配置失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=await translate("config.save_failed", error=str(e)))
 
 
 # =============================================================================
@@ -1707,7 +1779,7 @@ async def websocket_logs(websocket: WebSocket):
 
 async def verify_credential_project_common(filename: str, mode: str = "geminicli") -> JSONResponse:
     """验证并重新获取凭证的project id的通用函数"""
-    mode = validate_mode(mode)
+    mode = await validate_mode(mode)
 
     # 验证文件名
     if not filename.endswith(".json"):
@@ -1789,7 +1861,7 @@ async def verify_credential_project(
     检验成功可以使403错误恢复
     """
     try:
-        mode = validate_mode(mode)
+        mode = await validate_mode(mode)
         return await verify_credential_project_common(filename, mode=mode)
     except HTTPException:
         raise
@@ -1808,7 +1880,7 @@ async def get_credential_quota(
     获取指定凭证的额度信息（仅支持 antigravity 模式）
     """
     try:
-        mode = validate_mode(mode)
+        mode = await validate_mode(mode)
         # 验证文件名
         if not filename.endswith(".json"):
             raise HTTPException(status_code=400, detail="无效的文件名")
@@ -1958,7 +2030,3 @@ async def get_version_info(check_update: bool = False):
             "success": False,
             "error": str(e)
         })
-
-
-
-
